@@ -1,0 +1,35 @@
+name: push-to-tidbyt
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: push-to-tidbyt
+  cancel-in-progress: false
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pixlet
+        run: |
+          curl -fsSL https://github.com/tidbyt/pixlet/releases/download/v0.34.0/pixlet_0.34.0_linux_amd64.tar.gz \
+            | sudo tar -xz -C /usr/local/bin pixlet
+
+      # Fail here if the backend is down, so the device keeps its last good screen.
+      - name: Check backend
+        run: curl -fsS --retry 3 --retry-delay 2 --max-time 30 -o /dev/null https://barclays-tidbyt.fly.dev/api/events
+
+      - name: Render
+        run: pixlet render tidbyt/barclays.star -o out.webp
+
+      - name: Push
+        env:
+          TIDBYT_API_KEY: ${{ secrets.TIDBYT_API_KEY }}
+          TIDBYT_DEVICE_ID: ${{ secrets.TIDBYT_DEVICE_ID }}
+        run: pixlet push --api-token "$TIDBYT_API_KEY" --installation-id barclays "$TIDBYT_DEVICE_ID" out.webp

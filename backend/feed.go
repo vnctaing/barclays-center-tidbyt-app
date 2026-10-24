@@ -11,7 +11,8 @@ const (
 	upcomingLimit = 10
 	recentLimit   = 10
 	recentWindow  = 14 * 24 * time.Hour
-	pruneAfter    = 48 * time.Hour
+	pastLimit     = 10
+	pastRetention = 365 * 24 * time.Hour
 )
 
 // Added is an event with the time this service first saw it on the listing.
@@ -29,11 +30,36 @@ type Feed struct {
 	Tonight       []Event   `json:"tonight"`
 	Upcoming      []Event   `json:"upcoming"`
 	RecentlyAdded []Added   `json:"recently_added"`
+	RecentPast    []Event   `json:"recent_past"`
 }
 
-// SeenState maps event key to the time it was first seen. A zero time means
+// Seen is what the service remembers about an event. FirstSeen is zero when
 // the event was already on the listing when tracking began, so it is not "new".
-type SeenState map[string]time.Time
+// Event is the last listing data seen for it, kept so the event can still be
+// shown after the venue drops it from the listing.
+type Seen struct {
+	FirstSeen time.Time `json:"first_seen"`
+	Event     Event     `json:"event"`
+}
+
+// UnmarshalJSON also reads the old format, a bare first-seen timestamp.
+func (s *Seen) UnmarshalJSON(data []byte) error {
+	var legacy time.Time
+	if err := json.Unmarshal(data, &legacy); err == nil {
+		*s = Seen{FirstSeen: legacy}
+		return nil
+	}
+	type plain Seen
+	var p plain
+	if err := json.Unmarshal(data, &p); err != nil {
+		return err
+	}
+	*s = Seen(p)
+	return nil
+}
+
+// SeenState maps event key to what was remembered about it.
+type SeenState map[string]Seen
 
 func LoadState(path string) (SeenState, error) {
 	state := SeenState{}
@@ -62,9 +88,11 @@ func SaveState(path string, state SeenState) error {
 	return os.Rename(tmp, path)
 }
 
-// Observe records newly listed events and prunes state that is no longer needed.
+// Observe records listed events and prunes state that is no longer needed.
 // On the very first run every listed event is a baseline (zero time), so the
 // app does not report the whole existing listing as "recently added".
+// An event that leaves the listing after its start time has passed is kept
+// as a past event; one that leaves before it started was removed, so it is dropped.
 // It reports whether the state changed.
 func Observe(state SeenState, events []Event, now time.Time) bool {
 	baseline := len(state) == 0
@@ -72,25 +100,35 @@ func Observe(state SeenState, events []Event, now time.Time) bool {
 	listed := map[string]bool{}
 	for _, e := range events {
 		listed[e.Key] = true
-		if _, ok := state[e.Key]; !ok {
-			first := now
+		seen, ok := state[e.Key]
+		if !ok {
+			seen.FirstSeen = now
 			if baseline {
-				first = time.Time{}
+				seen.FirstSeen = time.Time{}
 			}
-			state[e.Key] = first
+		}
+		if !ok || !sameEvent(seen.Event, e) {
+			seen.Event = e
+			state[e.Key] = seen
 			changed = true
 		}
 	}
-	for key, firstSeen := range state {
+	for key, seen := range state {
 		if listed[key] {
 			continue
 		}
-		if firstSeen.IsZero() || now.Sub(firstSeen) > recentWindow {
+		start := seen.Event.Start
+		if start.IsZero() || start.After(now) || now.Sub(start) > pastRetention {
 			delete(state, key)
 			changed = true
 		}
 	}
 	return changed
+}
+
+func sameEvent(a, b Event) bool {
+	return a.Key == b.Key && a.Title == b.Title && a.Subtitle == b.Subtitle &&
+		a.Start.Equal(b.Start) && a.URL == b.URL && a.TicketURL == b.TicketURL
 }
 
 // BuildFeed derives the three lists the app shows from the latest listing.
@@ -127,12 +165,21 @@ func BuildFeed(events []Event, state SeenState, now time.Time, loc *time.Locatio
 	for _, e := range events {
 		byKey[e.Key] = e
 	}
-	for key, firstSeen := range state {
+	for key, seen := range state {
 		e, listed := byKey[key]
-		if !listed || firstSeen.IsZero() || now.Sub(firstSeen) > recentWindow {
-			continue
+		if listed && !seen.FirstSeen.IsZero() && now.Sub(seen.FirstSeen) <= recentWindow {
+			feed.RecentlyAdded = append(feed.RecentlyAdded, Added{Event: e, AddedAt: seen.FirstSeen})
 		}
-		feed.RecentlyAdded = append(feed.RecentlyAdded, Added{Event: e, AddedAt: firstSeen})
+		if past := seen.Event; !past.Start.IsZero() && past.Start.Before(today) {
+			past.Start = past.Start.In(loc)
+			feed.RecentPast = append(feed.RecentPast, past)
+		}
+	}
+	sort.Slice(feed.RecentPast, func(i, j int) bool {
+		return feed.RecentPast[i].Start.After(feed.RecentPast[j].Start)
+	})
+	if len(feed.RecentPast) > pastLimit {
+		feed.RecentPast = feed.RecentPast[:pastLimit]
 	}
 	sort.Slice(feed.RecentlyAdded, func(i, j int) bool {
 		return feed.RecentlyAdded[i].AddedAt.After(feed.RecentlyAdded[j].AddedAt)
@@ -148,6 +195,9 @@ func BuildFeed(events []Event, state SeenState, now time.Time, loc *time.Locatio
 	}
 	if feed.RecentlyAdded == nil {
 		feed.RecentlyAdded = []Added{}
+	}
+	if feed.RecentPast == nil {
+		feed.RecentPast = []Event{}
 	}
 	return feed
 }

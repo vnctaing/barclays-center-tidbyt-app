@@ -155,6 +155,13 @@ def latest_screen(feed):
         return {"header": "COMING UP", "right": "", "rows": [list_row(e) for e in later]}
     return {"header": "JUST ADDED", "right": "", "rows": [small_row("NOTHING NEW YET")]}
 
+# Past events the backend remembered from earlier listings; skipped while there are none.
+def recent_screen(feed):
+    past = feed.get("recent_past", [])[:3]
+    if not past:
+        return None
+    return {"header": "RECENT", "right": "", "rows": [list_row(e) for e in past]}
+
 def error_screen():
     return {"header": "BARCLAYS CENTER", "right": "", "rows": [small_row("BACKEND DOWN")]}
 
@@ -164,6 +171,9 @@ def main(config):
         screens = [error_screen()]
     else:
         screens = [tonight_screen(feed), upcoming_screen(feed), latest_screen(feed)]
+        recent = recent_screen(feed)
+        if recent:
+            screens.append(recent)
 
     frames = []
     for screen in screens:

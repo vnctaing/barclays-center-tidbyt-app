@@ -1,6 +1,6 @@
 # Barclays Center on Tidbyt
 
-A [Tidbyt](https://tidbyt.com) app that shows what is on at the Barclays Center: tonight's event, the next ones, and what was just added to the calendar. Long titles scroll horizontally.
+A [Tidbyt](https://tidbyt.com) app that shows what is on at the Barclays Center: tonight's event, the next ones, what was just added to the calendar, and recent past events. Long titles scroll horizontally.
 
 ![The three screens, captured mid-scroll](docs/screens.png)
 
@@ -18,9 +18,9 @@ Fly.io machine ── /api/events (JSON) ◄── pixlet render ◄── GitHu
                                                                Tidbyt
 ```
 
-- `backend/` is a small Go service. It scrapes the events page when a request arrives and the last scrape is older than 20 minutes. It remembers when it first saw each event, which is how "recently added" works. The first scrape is a baseline, so nothing shows as new on day one.
+- `backend/` is a small Go service. It scrapes the events page when a request arrives and the last scrape is older than 20 minutes. It remembers every event it sees, including when it first saw it, which is how "recently added" works. The venue drops events from its listing once they are over, so the backend keeps them and serves them as past events (the Recent screen, newest first, up to a year). That history starts empty and fills in as events pass. The first scrape is a baseline, so nothing shows as new on day one.
 - The Fly machine scales to zero. It exits 20 seconds after the last request, so you pay for roughly a minute of compute a day.
-- `tidbyt/barclays.star` is the [Pixlet](https://github.com/tidbyt/pixlet) app. It fetches the feed and draws three screens: Tonight, Upcoming, and Just Added (or Coming Up when nothing is new).
+- `tidbyt/barclays.star` is the [Pixlet](https://github.com/tidbyt/pixlet) app. It fetches the feed and draws up to four screens: Tonight, Upcoming, Just Added (or Coming Up when nothing is new), and Recent once there is a past event to show.
 - `.github/workflows/push.yml` renders the app and pushes it to the device every 30 minutes. A pushed image is static, so the schedule is what keeps the display fresh.
 
 ## Run it yourself

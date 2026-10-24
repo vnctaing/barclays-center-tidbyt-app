@@ -58,7 +58,7 @@ func TestObserveBaselineThenNew(t *testing.T) {
 
 	Observe(state, events[:5], now)
 	for _, e := range events[:5] {
-		if !state[e.Key].IsZero() {
+		if !state[e.Key].FirstSeen.IsZero() {
 			t.Fatalf("baseline event %q should have zero first-seen", e.Title)
 		}
 	}
@@ -66,12 +66,12 @@ func TestObserveBaselineThenNew(t *testing.T) {
 	later := now.Add(time.Hour)
 	Observe(state, events, later)
 	for _, e := range events[5:] {
-		if !state[e.Key].Equal(later) {
-			t.Fatalf("new event %q should be first seen at %v, got %v", e.Title, later, state[e.Key])
+		if !state[e.Key].FirstSeen.Equal(later) {
+			t.Fatalf("new event %q should be first seen at %v, got %v", e.Title, later, state[e.Key].FirstSeen)
 		}
 	}
 	for _, e := range events[:5] {
-		if !state[e.Key].IsZero() {
+		if !state[e.Key].FirstSeen.IsZero() {
 			t.Fatalf("baseline event %q should stay baseline", e.Title)
 		}
 	}
@@ -127,5 +127,64 @@ func TestBuildFeedReturnsVenueTime(t *testing.T) {
 	}
 	if got := feed.Tonight[0].Start.Format(time.RFC3339); got != "2026-10-25T18:00:00-04:00" {
 		t.Fatalf("tonight start: %s", got)
+	}
+}
+
+func TestPastEventsAreRemembered(t *testing.T) {
+	loc, _ := time.LoadLocation("America/New_York")
+	events := loadFixture(t)
+	sortByStart(events)
+	game := events[0] // Nets vs. Pacers, 2026-10-25 6:00PM
+	before := time.Date(2026, 10, 25, 10, 0, 0, 0, loc)
+	state := SeenState{}
+	Observe(state, events, before)
+
+	// The venue drops the game from its listing once it is over.
+	after := time.Date(2026, 10, 27, 9, 0, 0, 0, loc)
+	rest := events[1:]
+	Observe(state, rest, after)
+
+	feed := BuildFeed(rest, state, after, loc)
+	if len(feed.RecentPast) == 0 || feed.RecentPast[0].Key != game.Key {
+		t.Fatalf("past game should be remembered, got %+v", feed.RecentPast)
+	}
+	if got := feed.RecentPast[0].Start.Format(time.RFC3339); got != "2026-10-25T18:00:00-04:00" {
+		t.Fatalf("past start in venue time: %s", got)
+	}
+	for i := 1; i < len(feed.RecentPast); i++ {
+		if feed.RecentPast[i].Start.After(feed.RecentPast[i-1].Start) {
+			t.Fatal("past events must be newest first")
+		}
+	}
+}
+
+func TestEventRemovedBeforeItStartedIsForgotten(t *testing.T) {
+	events := loadFixture(t)
+	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
+	state := SeenState{}
+	Observe(state, events, now)
+	Observe(state, events[1:], now.Add(time.Hour))
+	if _, ok := state[events[0].Key]; ok {
+		t.Fatal("a cancelled upcoming event must not linger as a past event")
+	}
+}
+
+func TestLegacyStateFileStillLoads(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	legacy := `{"a|1": "2026-10-20T12:00:00Z", "b|2": "0001-01-01T00:00:00Z"}`
+	if err := os.WriteFile(path, []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	state, err := LoadState(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state["a|1"].FirstSeen.IsZero() || !state["b|2"].FirstSeen.IsZero() {
+		t.Fatalf("legacy timestamps lost: %+v", state)
+	}
+	events := []Event{{Key: "a|1", Title: "A", Start: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)}}
+	Observe(state, events, time.Date(2026, 10, 24, 0, 0, 0, 0, time.UTC))
+	if state["a|1"].Event.Title != "A" || state["a|1"].FirstSeen.IsZero() {
+		t.Fatalf("legacy entry should gain its event and keep first-seen: %+v", state["a|1"])
 	}
 }

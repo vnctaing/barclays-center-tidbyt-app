@@ -125,42 +125,18 @@ def screen_frames(screen):
         ))
     return frames
 
-def tonight_screen(feed):
+# One screen. A show tonight gets the big title with the next two events under it;
+# otherwise the screen is just the next three events.
+def home_screen(feed):
+    upcoming = feed["upcoming"]
     if feed["tonight"]:
         event = feed["tonight"][0]
-        rows = [title_row(title_of(event))]
-        if event.get("subtitle"):
-            rows.append(small_row(event["subtitle"].upper()))
+        rows = [title_row(title_of(event))] + [list_row(e) for e in upcoming[:2]]
         return {"header": "TONIGHT", "right": clock(event["start"]), "rows": rows}
-    rows = [title_row("NO SHOW", GREY)]
-    if feed["upcoming"]:
-        nxt = feed["upcoming"][0]
-        rows.append(small_row("NEXT " + short_date(nxt["start"]), GOLD))
-        rows.append(small_row(title_of(nxt), WHITE))
-    return {"header": "TONIGHT", "right": "", "rows": rows}
-
-def upcoming_screen(feed):
-    rows = [list_row(e) for e in feed["upcoming"][:3]]
+    rows = [list_row(e) for e in upcoming[:3]]
     if not rows:
         rows = [small_row("NO EVENTS LISTED")]
-    return {"header": "UPCOMING", "right": "", "rows": rows}
-
-# Recently added events when there are any, otherwise the next ones after the upcoming screen.
-def latest_screen(feed):
-    added = feed["recently_added"][:3]
-    if added:
-        return {"header": "JUST ADDED", "right": "", "rows": [list_row(e) for e in added]}
-    later = feed["upcoming"][3:6]
-    if later:
-        return {"header": "COMING UP", "right": "", "rows": [list_row(e) for e in later]}
-    return {"header": "JUST ADDED", "right": "", "rows": [small_row("NOTHING NEW YET")]}
-
-# Past events the backend remembered from earlier listings; skipped while there are none.
-def recent_screen(feed):
-    past = feed.get("recent_past", [])[:3]
-    if not past:
-        return None
-    return {"header": "RECENT", "right": "", "rows": [list_row(e) for e in past]}
+    return {"header": "NEXT UP", "right": "", "rows": rows}
 
 def error_screen():
     return {"header": "BARCLAYS CENTER", "right": "", "rows": [small_row("BACKEND DOWN")]}
@@ -170,10 +146,7 @@ def main(config):
     if feed == None:
         screens = [error_screen()]
     else:
-        screens = [tonight_screen(feed), upcoming_screen(feed), latest_screen(feed)]
-        recent = recent_screen(feed)
-        if recent:
-            screens.append(recent)
+        screens = [home_screen(feed)]
 
     frames = []
     for screen in screens:

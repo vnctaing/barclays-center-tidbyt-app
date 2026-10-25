@@ -10,7 +10,7 @@ HEADER_BG = "#14213d"
 GOLD = "#fca311"
 WHITE = "#ffffff"
 GREY = "#9aa0a6"
-DIM = "#5f6368"
+DIM = "#80868b"
 
 # Monospace fonts, so text width is exactly chars * advance and we know when to scroll.
 TITLE_FONT = "5x8"

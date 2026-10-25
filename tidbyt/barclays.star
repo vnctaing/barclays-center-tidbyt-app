@@ -10,6 +10,7 @@ HEADER_BG = "#14213d"
 GOLD = "#fca311"
 WHITE = "#ffffff"
 GREY = "#9aa0a6"
+DIM = "#5f6368"
 
 # Monospace fonts, so text width is exactly chars * advance and we know when to scroll.
 TITLE_FONT = "5x8"
@@ -78,12 +79,12 @@ def row_widget(row, k):
         layers.append(render.Box(
             width = label_width,
             height = row["height"],
-            color = BG,
+            color = row.get("bg", BG),
             child = render.Row(expanded = True, main_align = "start", children = [
-                render.Padding(pad = (1, 0, 0, 0), child = render.Text(row["label"], font = SMALL_FONT, color = GOLD)),
+                render.Padding(pad = (1, 0, 0, 0), child = render.Text(row["label"], font = SMALL_FONT, color = row.get("label_color", GOLD))),
             ]),
         ))
-    return render.Box(width = 64, height = row["height"], child = render.Stack(children = layers))
+    return render.Box(width = 64, height = row["height"], color = row.get("bg", BG), child = render.Stack(children = layers))
 
 def header_widget(label, right):
     children = [render.Padding(pad = (1, 0, 0, 0), child = render.Text(label, font = SMALL_FONT, color = GOLD))]
@@ -96,17 +97,32 @@ def header_widget(label, right):
         child = render.Row(expanded = True, main_align = "space_between", cross_align = "center", children = children),
     )
 
-def title_row(text, color = WHITE):
-    return {"text": text, "font": TITLE_FONT, "advance": TITLE_ADVANCE, "color": color, "height": ROW_HEIGHT}
-
 def small_row(text, color = GREY):
     return {"text": text, "font": SMALL_FONT, "advance": SMALL_ADVANCE, "color": color, "height": ROW_HEIGHT}
 
-def list_row(event):
-    row = small_row(title_of(event), WHITE)
-    row["label"] = short_date(event["start"])
+def labeled(row, label, label_color):
+    row["label"] = label
     row["label_width"] = 21
+    row["label_color"] = label_color
     return row
+
+# Upcoming: date in gold, title in white.
+def upcoming_row(event):
+    return labeled(small_row(title_of(event), WHITE), short_date(event["start"]), GOLD)
+
+# Past: everything dimmed.
+def past_row(event):
+    return labeled(small_row(title_of(event), DIM), short_date(event["start"]), DIM)
+
+# Today: a highlighted band, gold when there is a show and navy when there is not.
+def today_row(event):
+    if event:
+        row = small_row(clock(event["start"]) + " " + title_of(event), BG)
+        row["bg"] = GOLD
+        return labeled(row, "TODAY", BG)
+    row = small_row("NO SHOW", GREY)
+    row["bg"] = HEADER_BG
+    return labeled(row, "TODAY", GOLD)
 
 # A screen is {header, right, rows}.
 def screen_frames(screen):
@@ -120,23 +136,21 @@ def screen_frames(screen):
     frames = []
     for k in range(count):
         body = [row_widget(row, k) for row in screen["rows"]]
-        frames.append(render.Column(
-            children = [header_widget(screen["header"], screen["right"]), render.Box(width = 64, height = 1)] + body,
-        ))
+        top = []
+        if screen["header"]:
+            top = [header_widget(screen["header"], screen["right"]), render.Box(width = 64, height = 1)]
+        frames.append(render.Column(children = top + body))
     return frames
 
-# One screen. A show tonight gets the big title with the next two events under it;
-# otherwise the screen is just the next three events.
+# One screen read top to bottom as a timeline: the last past event (dimmed), today (a
+# highlighted band), then what is coming. Four rows fill the 32 pixels exactly.
 def home_screen(feed):
+    tonight = feed["tonight"][0] if feed["tonight"] else None
+    past = feed.get("recent_past", [])[:1]
     upcoming = feed["upcoming"]
-    if feed["tonight"]:
-        event = feed["tonight"][0]
-        rows = [title_row(title_of(event))] + [list_row(e) for e in upcoming[:2]]
-        return {"header": "TONIGHT", "right": clock(event["start"]), "rows": rows}
-    rows = [list_row(e) for e in upcoming[:3]]
-    if not rows:
-        rows = [small_row("NO EVENTS LISTED")]
-    return {"header": "NEXT UP", "right": "", "rows": rows}
+    rows = [past_row(e) for e in past] + [today_row(tonight)]
+    rows = rows + [upcoming_row(e) for e in upcoming[:4 - len(rows)]]
+    return {"header": "", "right": "", "rows": rows}
 
 def error_screen():
     return {"header": "BARCLAYS CENTER", "right": "", "rows": [small_row("BACKEND DOWN")]}

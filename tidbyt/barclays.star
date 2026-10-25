@@ -1,6 +1,8 @@
 load("http.star", "http")
+load("math.star", "math")
 load("render.star", "render")
 load("schema.star", "schema")
+load("time.star", "time")
 
 DEFAULT_BACKEND = "https://barclays-tidbyt.fly.dev/api/events"
 CACHE_SECONDS = 1800
@@ -40,8 +42,26 @@ def clock(start):
         hour12 = 12
     return "%d:%s%s" % (hour12, start[14:16], suffix)
 
-def short_date(start):
-    return "%s/%s" % (start[5:7], start[8:10])
+DATE_FORMAT = "2006-01-02"
+
+# Whole calendar days from today (in the venue's timezone) to the event's date; negative when past.
+def days_from_today(start, tz):
+    today = time.parse_time(time.now().in_location(tz).format(DATE_FORMAT), format = DATE_FORMAT)
+    day = time.parse_time(start[:10], format = DATE_FORMAT)
+    return int(math.round((day - today).hours / 24))
+
+def relative_label(days):
+    if days < 0:
+        return "YEST" if days == -1 else "%dD AGO" % -days
+    if days == 0:
+        return "TODAY"
+    if days == 1:
+        return "TMRW"
+    if days < 14:
+        return "IN %dD" % days
+    if days < 63:
+        return "IN %dW" % (days // 7)
+    return "IN %dM" % (days // 30)
 
 def title_of(event):
     return event["title"].upper()
@@ -102,17 +122,17 @@ def small_row(text, color = GREY):
 
 def labeled(row, label, label_color):
     row["label"] = label
-    row["label_width"] = 21
+    row["label_width"] = 4 * len(label) + 1  # raised to the widest label on the screen by align_labels
     row["label_color"] = label_color
     return row
 
 # Upcoming: date in gold, title in white.
-def upcoming_row(event):
-    return labeled(small_row(title_of(event), WHITE), short_date(event["start"]), GOLD)
+def upcoming_row(event, tz):
+    return labeled(small_row(title_of(event), WHITE), relative_label(days_from_today(event["start"], tz)), GOLD)
 
 # Past: everything dimmed.
-def past_row(event):
-    return labeled(small_row(title_of(event), DIM), short_date(event["start"]), DIM)
+def past_row(event, tz):
+    return labeled(small_row(title_of(event), DIM), relative_label(days_from_today(event["start"], tz)), DIM)
 
 # Today: a highlighted band, gold when there is a show and navy when there is not.
 def today_row(event):
@@ -142,14 +162,22 @@ def screen_frames(screen):
         frames.append(render.Column(children = top + body))
     return frames
 
+# Titles start at the same x on every row, so every label gets the widest label's width.
+def align_labels(rows):
+    width = max([row["label_width"] for row in rows])
+    for row in rows:
+        row["label_width"] = width
+
 # One screen read top to bottom as a timeline: the last past event (dimmed), today (a
 # highlighted band), then what is coming. Four rows fill the 32 pixels exactly.
 def home_screen(feed):
     tonight = feed["tonight"][0] if feed["tonight"] else None
     past = feed.get("recent_past", [])[:1]
     upcoming = feed["upcoming"]
-    rows = [past_row(e) for e in past] + [today_row(tonight)]
-    rows = rows + [upcoming_row(e) for e in upcoming[:4 - len(rows)]]
+    tz = feed["timezone"]
+    rows = [past_row(e, tz) for e in past] + [today_row(tonight)]
+    rows = rows + [upcoming_row(e, tz) for e in upcoming[:4 - len(rows)]]
+    align_labels(rows)
     return {"header": "", "right": "", "rows": rows}
 
 def error_screen():

@@ -41,13 +41,15 @@ def days_from_today(start, tz):
     day = time.parse_time(start[:10], format = DATE_FORMAT)
     return int(math.round((day - today).hours / 24))
 
-def relative_label(days):
+def relative_label(days, start, past = False):
     if days < 0:
         return "YEST" if days == -1 else "%dD AGO" % -days
     if days == 0:
-        return "TODAY"
+        return "PAST" if past else "TODAY"
     if days == 1:
         return "TMRW"
+    if days < 7:
+        return time.parse_time(start[:10], format = DATE_FORMAT).format("Mon").upper()
     if days < 14:
         return "IN %dD" % days
     if days < 63:
@@ -117,11 +119,11 @@ def labeled(row, label, label_color):
 
 # Upcoming: date in gold, title in white.
 def upcoming_row(event, tz):
-    return labeled(small_row(title_of(event), WHITE), relative_label(days_from_today(event["start"], tz)), GOLD)
+    return labeled(small_row(title_of(event), WHITE), relative_label(days_from_today(event["start"], tz), event["start"]), GOLD)
 
 # Past: everything dimmed.
 def past_row(event, tz):
-    return labeled(small_row(title_of(event), DIM), relative_label(days_from_today(event["start"], tz)), DIM)
+    return labeled(small_row(title_of(event), DIM), relative_label(days_from_today(event["start"], tz), event["start"], True), DIM)
 
 # Today: a highlighted band, gold when there is a show and navy when there is not.
 def today_row(event):

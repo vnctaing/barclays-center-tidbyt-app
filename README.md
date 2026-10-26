@@ -2,7 +2,7 @@
 
 A [Tidbyt](https://tidbyt.com) app that shows what is on at the Barclays Center: tonight's event, the next ones, what was just added to the calendar, and recent past events. Long titles scroll horizontally.
 
-Read top to bottom like a timeline: the last past event (dimmed), today (a highlighted band, gold when there is a show and navy with "NO SHOW" when there is not), then the next events. Dates are relative (`TMRW`, `IN 3D`, `IN 2W`, `3D AGO`). Left: a show tonight. Right: no show tonight. Past events appear once the backend has seen one pass.
+Read top to bottom like a timeline: the last past event (dimmed), today (a highlighted band, gold when there is a show and navy with "NO SHOW" when there is not), then the next events. Dates are relative: `TMRW`, then the weekday (`TUE`) within a week, then `IN 9D`, `IN 3W`, and `3D AGO` for past events. Left: a show tonight. Right: no show tonight. Past events appear once the backend has seen one pass.
 
 ![The screen with and without a show tonight](docs/screens.png)
 

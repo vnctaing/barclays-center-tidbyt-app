@@ -161,6 +161,10 @@ func BuildFeed(events []Event, state SeenState, now time.Time, loc *time.Locatio
 		feed.Upcoming = feed.Upcoming[:upcomingLimit]
 	}
 
+	tonight := map[string]bool{}
+	for _, e := range feed.Tonight {
+		tonight[e.Key] = true
+	}
 	byKey := map[string]Event{}
 	for _, e := range events {
 		byKey[e.Key] = e
@@ -170,7 +174,7 @@ func BuildFeed(events []Event, state SeenState, now time.Time, loc *time.Locatio
 		if listed && !seen.FirstSeen.IsZero() && now.Sub(seen.FirstSeen) <= recentWindow {
 			feed.RecentlyAdded = append(feed.RecentlyAdded, Added{Event: e, AddedAt: seen.FirstSeen})
 		}
-		if past := seen.Event; !past.Start.IsZero() && past.Start.Before(today) {
+		if past := seen.Event; !past.Start.IsZero() && past.Start.Before(now) && !tonight[key] {
 			past.Start = past.Start.In(loc)
 			feed.RecentPast = append(feed.RecentPast, past)
 		}

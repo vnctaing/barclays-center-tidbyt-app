@@ -21,9 +21,9 @@ SMALL_FONT = "tom-thumb"
 SMALL_ADVANCE = 4
 
 FRAME_DELAY_MS = 50
-PAUSE_FRAMES = 16  # hold at the start and at the end of a scroll
+PAUSE_FRAMES = 24  # hold at the start and at the end of a scroll, 1.2s
 MIN_SCREEN_FRAMES = 70
-MAX_SCREEN_FRAMES = 200
+MAX_SCREEN_FRAMES = 260
 HEADER_HEIGHT = 7
 ROW_HEIGHT = 8
 
@@ -32,15 +32,6 @@ def fetch_feed(url):
     if resp.status_code != 200:
         return None
     return resp.json()
-
-# start looks like "2026-10-25T18:00:00-04:00", already in the venue's local time.
-def clock(start):
-    hour = int(start[11:13])
-    suffix = "A" if hour < 12 else "P"
-    hour12 = hour % 12
-    if hour12 == 0:
-        hour12 = 12
-    return "%d:%s%s" % (hour12, start[14:16], suffix)
 
 DATE_FORMAT = "2006-01-02"
 
@@ -66,19 +57,17 @@ def relative_label(days):
 def title_of(event):
     return event["title"].upper()
 
-# Pixels to shift left at frame k: hold, scroll to the end, hold.
-def scroll_offset(k, overflow):
+# Pixels to shift left at frame k: hold, scroll, hold. A row scrolls speed pixels per 4 frames,
+# 4 being 20px/s, the pace the upcoming rows use.
+def scroll_offset(k, overflow, speed):
     if overflow <= 0 or k < PAUSE_FRAMES:
         return 0
-    speed = 1 if overflow <= 100 else 2
-    moved = (k - PAUSE_FRAMES) * speed
-    return overflow if moved > overflow else moved
+    return min((k - PAUSE_FRAMES) * speed // 4, overflow)
 
-def frames_needed(overflow):
+def frames_needed(overflow, speed):
     if overflow <= 0:
         return 0
-    speed = 1 if overflow <= 100 else 2
-    return PAUSE_FRAMES + (overflow + speed - 1) // speed + PAUSE_FRAMES
+    return PAUSE_FRAMES + (overflow * 4 + speed - 1) // speed + PAUSE_FRAMES
 
 # A row is a dict: text, font, advance, color, height, and optionally label (fixed on the left, with label_width).
 def row_overflow(row):
@@ -88,12 +77,12 @@ def row_overflow(row):
 def row_widget(row, k):
     label_width = row.get("label_width", 0)
     left = label_width + 1
-    offset = scroll_offset(k, row_overflow(row))
+    offset = scroll_offset(k, row_overflow(row), row.get("speed", 4))
     text = render.Padding(
-        pad = (left - offset, 0, 0, 0),
+        pad = (left - offset, 1, 0, 0),
         child = render.Text(row["text"], font = row["font"], color = row["color"]),
     )
-    layers = [render.Row(expanded = True, main_align = "start", children = [text])]
+    layers = [render.Row(expanded = True, main_align = "start", cross_align = "center", children = [text])]
     if label_width > 0:
         # Opaque cover so the title slides under the label instead of over it.
         layers.append(render.Box(
@@ -122,7 +111,7 @@ def small_row(text, color = GREY):
 
 def labeled(row, label, label_color):
     row["label"] = label
-    row["label_width"] = 4 * len(label) + 1  # raised to the widest label on the screen by align_labels
+    row["label_width"] = 4 * len(label) + 2  # raised to the widest label on the screen by align_labels
     row["label_color"] = label_color
     return row
 
@@ -137,8 +126,9 @@ def past_row(event, tz):
 # Today: a highlighted band, gold when there is a show and navy when there is not.
 def today_row(event):
     if event:
-        row = small_row(clock(event["start"]) + " " + title_of(event), BG)
+        row = small_row(title_of(event), BG)
         row["bg"] = GOLD
+        row["speed"] = 3  # 15px/s: the show is the one row worth reading slowly
         return labeled(row, "TODAY", BG)
     row = small_row("NO SHOW", GREY)
     row["bg"] = HEADER_BG
@@ -148,7 +138,7 @@ def today_row(event):
 def screen_frames(screen):
     count = MIN_SCREEN_FRAMES
     for row in screen["rows"]:
-        needed = frames_needed(row_overflow(row))
+        needed = frames_needed(row_overflow(row), row.get("speed", 4))
         if needed > count:
             count = needed
     if count > MAX_SCREEN_FRAMES:
